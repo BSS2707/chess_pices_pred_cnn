@@ -1,4 +1,3 @@
-
 import os
 import json
 import numpy as np
@@ -30,31 +29,57 @@ def load_dataset():
     images = []
     labels = []
 
+    if not os.path.exists(DATASET_DIR):
+        raise RuntimeError(
+            "Dataset folder not found: " + DATASET_DIR
+        )
+
     class_names = sorted([
         x for x in os.listdir(DATASET_DIR)
         if os.path.isdir(os.path.join(DATASET_DIR, x))
     ])
 
+    if not class_names:
+        raise RuntimeError(
+            "No class folders found inside dataset."
+        )
+
     for label, class_name in enumerate(class_names):
 
-        folder = os.path.join(DATASET_DIR, class_name)
+        folder = os.path.join(
+            DATASET_DIR,
+            class_name
+        )
 
         for file in os.listdir(folder):
 
-            path = os.path.join(folder, file)
+            path = os.path.join(
+                folder,
+                file
+            )
 
             try:
-                img = Image.open(path).convert("RGB")
-                img = img.resize(IMG_SIZE)
 
-                images.append(np.array(img))
+                img = Image.open(path).convert("RGB")
+
+                img = img.resize(
+                    IMG_SIZE
+                )
+
+                images.append(
+                    np.array(img)
+                )
+
                 labels.append(label)
 
             except Exception:
                 pass
 
     return (
-        np.array(images, dtype=np.float32),
+        np.array(
+            images,
+            dtype=np.float32
+        ),
         np.array(labels),
         class_names
     )
@@ -63,7 +88,11 @@ def load_dataset():
 def build_model(num_classes):
 
     base_model = MobileNetV2(
-        input_shape=(224, 224, 3),
+        input_shape=(
+            224,
+            224,
+            3
+        ),
         include_top=False,
         weights="imagenet"
     )
@@ -71,7 +100,11 @@ def build_model(num_classes):
     base_model.trainable = False
 
     inputs = layers.Input(
-        shape=(224, 224, 3)
+        shape=(
+            224,
+            224,
+            3
+        )
     )
 
     x = layers.Rescaling(
@@ -86,14 +119,18 @@ def build_model(num_classes):
 
     x = layers.GlobalAveragePooling2D()(x)
 
-    x = layers.Dropout(0.4)(x)
+    x = layers.Dropout(
+        0.4
+    )(x)
 
     x = layers.Dense(
         256,
         activation="relu"
     )(x)
 
-    x = layers.Dropout(0.3)(x)
+    x = layers.Dropout(
+        0.3
+    )(x)
 
     outputs = layers.Dense(
         num_classes,
@@ -122,28 +159,48 @@ def train_model(epochs=EPOCHS):
 
     X, y, class_names = load_dataset()
 
-    print("Classes:", class_names)
-    print("Total Images:", len(X))
+    print(
+        "Classes:",
+        class_names
+    )
+
+    print(
+        "Total Images:",
+        len(X)
+    )
 
     if len(X) == 0:
         raise RuntimeError(
-            "No images found inside the dataset folder."
+            "No images found inside dataset."
         )
 
     with open(
         CLASS_NAMES_PATH,
         "w"
     ) as f:
+
         json.dump(
             class_names,
             f,
             indent=4
         )
 
-    indices = np.arange(len(X))
-    np.random.shuffle(indices)
+    indices = np.arange(
+        len(X)
+    )
 
-    split = int(len(X) * 0.85)
+    np.random.shuffle(
+        indices
+    )
+
+    split = int(
+        len(X) * 0.85
+    )
+
+    if split <= 0 or split >= len(X):
+        raise RuntimeError(
+            "Dataset is too small for training."
+        )
 
     train_idx = indices[:split]
     val_idx = indices[split:]
@@ -177,11 +234,6 @@ def train_model(epochs=EPOCHS):
         )
     ])
 
-    X_train_aug = augmentation(
-        X_train,
-        training=True
-    )
-
     callbacks = [
 
         tf.keras.callbacks.EarlyStopping(
@@ -195,13 +247,17 @@ def train_model(epochs=EPOCHS):
             monitor="val_accuracy",
             save_best_only=True
         )
-
     ]
 
-    print("Stage 1 Training...")
+    print(
+        "Stage 1 Training..."
+    )
 
     model.fit(
-        X_train_aug,
+        augmentation(
+            X_train,
+            training=True
+        ),
         y_train,
         validation_data=(
             X_val,
@@ -212,7 +268,9 @@ def train_model(epochs=EPOCHS):
         callbacks=callbacks
     )
 
-    print("Stage 2 Fine Tuning...")
+    print(
+        "Stage 2 Fine Tuning..."
+    )
 
     base_model.trainable = True
 
@@ -227,13 +285,11 @@ def train_model(epochs=EPOCHS):
         metrics=["accuracy"]
     )
 
-    X_train_aug = augmentation(
-        X_train,
-        training=True
-    )
-
     model.fit(
-        X_train_aug,
+        augmentation(
+            X_train,
+            training=True
+        ),
         y_train,
         validation_data=(
             X_val,
@@ -247,7 +303,9 @@ def train_model(epochs=EPOCHS):
         MODEL_SAVE_PATH
     )
 
-    print("Model Saved Successfully!")
+    print(
+        "Model Saved Successfully!"
+    )
 
     return model, class_names
 
@@ -257,37 +315,73 @@ def load_trained_model():
     if not os.path.exists(
         MODEL_SAVE_PATH
     ):
-        return None, None
+        print(
+            "Model not found. Training new model..."
+        )
+
+        return train_model()
 
     if not os.path.exists(
         CLASS_NAMES_PATH
     ):
-        return None, None
+        print(
+            "Class names not found. Training new model..."
+        )
+
+        return train_model()
 
     try:
+
+        print(
+            "Loading existing model..."
+        )
 
         model = tf.keras.models.load_model(
             MODEL_SAVE_PATH,
             compile=False
         )
 
-    except Exception as e:
+        with open(
+            CLASS_NAMES_PATH,
+            "r"
+        ) as f:
 
-        raise RuntimeError(
-            "Model loading failed.\n\n"
-            "Delete the old chess_piece_model.keras file "
-            "and retrain the model.\n\n"
-            "Original error:\n" + str(e)
+            class_names = json.load(f)
+
+        print(
+            "Existing model loaded successfully."
         )
 
-    with open(
-        CLASS_NAMES_PATH,
-        "r"
-    ) as f:
+        return model, class_names
 
-        class_names = json.load(f)
+    except Exception as e:
 
-    return model, class_names
+        print(
+            "Existing model could not be loaded."
+        )
+
+        print(
+            "Original error:",
+            str(e)
+        )
+
+        try:
+            os.remove(
+                MODEL_SAVE_PATH
+            )
+
+            print(
+                "Old model deleted."
+            )
+
+        except Exception:
+            pass
+
+        print(
+            "Training a new model..."
+        )
+
+        return train_model()
 
 
 def predict_piece(
@@ -299,6 +393,11 @@ def predict_piece(
     if model is None:
 
         model, class_names = load_trained_model()
+
+    if model is None:
+        raise RuntimeError(
+            "Model could not be loaded or trained."
+        )
 
     img = image_input.convert(
         "RGB"
